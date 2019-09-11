@@ -1,0 +1,40 @@
+task:
+    BlackBlood:
+    CDSS_Liver:
+        subtask: 0
+        phase: 0
+
+mode:
+    segmentation:
+        bottom_up: unet
+        top_down: unet
+        skip: unet
+        num_se: 0
+        conv_loop: 2
+        depth: 4
+        downsizing: pooling
+        divide: 1
+        last_relu: 0
+
+    classification:
+
+hyperparameter:
+    patch: None
+    lossfn: dice
+    norm: in
+    optimizer: adam
+    lr: 0.0001
+    epochs: 100
+    batch_size: 1
+    activation: relu
+    classes: 2
+    standard: minmax
+    wlevel: 100
+    wwidth: 180
+    resize: 1
+
+etc:
+    summary: 0
+    checkpoint_root: 0
+    checkpoint: 0
+    callback: 1
