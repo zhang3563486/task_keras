@@ -21,9 +21,10 @@ if __name__ == "__main__" and __package__ is None:
     import src_sungchul_keras.bin  # noqa: F401
     __package__ = "src_sungchul_keras.bin"
 
-from .. import models
-from .. import callbacks
-from .. import preprocessing
+from . import get_session
+from ..models import *
+from ..callbacks import *
+from ..preprocessing import *
 
 def set_cbdir(args, stamp):
     if not os.path.isdir('/mnas/{}'.format(args.task)):
@@ -44,11 +45,6 @@ def set_cbdir(args, stamp):
     
     with open('/mnas/{}/{}/{}/{}/model_desc.json'.format(args.task, args.mode, args.subtask, stamp), 'w') as f:
         f.write(json.dumps(vars(args), indent=4))
-
-def get_session():
-    config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-    return tf.Session(config=config)
 
 def check_yaml(main_args):
     sub_args = yaml.safe_load(open(main_args.yaml))
@@ -72,6 +68,8 @@ def check_yaml(main_args):
 
     # Sanity check for etc
     assert sub_args['etc']['checkpoint_root'], 'Root path of checkpoint must be selected.'
+    assert sub_args['etc']['result_root'], 'Root path of result must be selected.'
+    assert sub_args['etc']['data_root'], 'Root path of data must be selected.'
 
     return sub_args
 
@@ -102,16 +100,12 @@ def main(args=None):
         args = sys.argv[1:]
     main_args = get_arguments(args)
     sub_args = check_yaml(main_args)
-    return
 
-    keras.backend.tensorflow_backend.set_session(get_session())
-
-    trainset, testset = load(args.task)
-    valset = trainset[:len(testset)]
-    trainset = trainset[len(testset):]
-    print('mode :', args.mode)
-    print('task :', args.task)
-    print('  --> # of training data :', len(trainset), '/ # of validation data :', len(valset))
+    get_session()
+    trainset, valset, testset = load(main_args, sub_args)
+    
+    print('task :', main_args.task)
+    print('mode :', main_args.mode)
 
     print('TOTAL STEPS OF DATASET FOR TRAINING')
     if args.task == 'Vessel' and args.patch is not None:
