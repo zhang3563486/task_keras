@@ -1,5 +1,6 @@
-import os
+from .cdss_vessel_patch import calc_vessel_dataset
 
+import os
 from sklearn.model_selection import train_test_split
 
 def load(main_args, sub_args, seed=42, test_size=.1):

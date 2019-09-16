@@ -10,6 +10,8 @@ mode:
         top_down: unet
         skip: unet
         num_se: 0
+        norm: in
+        activation: relu
         conv_loop: 2
         depth: 4
         downsizing: pooling
@@ -19,14 +21,13 @@ mode:
     classification:
 
 hyperparameter:
-    patch: None
+    patch: 0
     lossfn: dice
-    norm: in
     optimizer: adam
     lr: 0.0001
     epochs: 100
+    steps: 0
     batch_size: 1
-    activation: relu
     classes: 2
     standard: minmax
     wlevel: 100
@@ -39,4 +40,4 @@ etc:
     result_root: /repository/data/CDSS_Liver/src/segmentation
     data_root: /repository/data/CDSS_Liver/data
     checkpoint: 0
-    callback: 0
+    callback: 1

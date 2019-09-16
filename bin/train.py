@@ -7,6 +7,7 @@ import yaml
 import json
 import argparse
 import numpy as np
+from collections import OrderedDict
 
 import keras
 import warnings
@@ -22,29 +23,34 @@ if __name__ == "__main__" and __package__ is None:
     __package__ = "src_sungchul_keras.bin"
 
 from . import get_session
-from ..models import *
-from ..callbacks import *
-from ..preprocessing import *
+from .. import models
+from .. import callbacks
+from .. import preprocessing
 
-def set_cbdir(args, stamp):
-    if not os.path.isdir('/mnas/{}'.format(args.task)):
-        os.mkdir('/mnas/{}'.format(args.task))
+def set_cbdir(main_args, sub_args):
+    if not os.path.isdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task)):
+        os.mkdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task))
 
-    if not os.path.isdir('/mnas/{}/{}'.format(args.task, args.mode)):
-        os.mkdir('/mnas/{}/{}'.format(args.task, args.mode))
+    if not os.path.isdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode)):
+        os.mkdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode))
 
-    if not os.path.isdir('/mnas/{}/{}/{}'.format(args.task, args.mode, args.subtask)):
-        os.mkdir('/mnas/{}/{}/{}'.format(args.task, args.mode, args.subtask))
+    if not os.path.isdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask'])):
+        os.mkdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask']))
 
-    if not os.path.isdir('/mnas/{}/{}/{}/{}'.format(args.task, args.mode, args.subtask, stamp)):
-        os.mkdir('/mnas/{}/{}/{}/{}'.format(args.task, args.mode, args.subtask, stamp))
+    if not os.path.isdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask'], sub_args['hyperparameter']['stamp'])):
+        os.mkdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask'], sub_args['hyperparameter']['stamp']))
     
     for i in ['checkpoint', 'history', 'logs']:
-        if not os.path.isdir('/mnas/{}/{}/{}/{}/{}'.format(args.task, args.mode, args.subtask, stamp, i)):
-            os.mkdir('/mnas/{}/{}/{}/{}/{}'.format(args.task, args.mode, args.subtask, stamp, i))
+        if not os.path.isdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask'], sub_args['hyperparameter']['stamp'], i)):
+            os.mkdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask'], sub_args['hyperparameter']['stamp'], i))
     
-    with open('/mnas/{}/{}/{}/{}/model_desc.json'.format(args.task, args.mode, args.subtask, stamp), 'w') as f:
-        f.write(json.dumps(vars(args), indent=4))
+    new_args = OrderedDict()
+    new_args['task'] = {main_args.task: sub_args['task']}
+    new_args['mode'] = {main_args.mode: sub_args['mode']}
+    new_args['hyperparameter'] = sub_args['hyperparameter']
+    new_args['etc'] = sub_args['etc']
+    with open(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask'], sub_args['hyperparameter']['stamp'], 'model_desc.yml'), 'w') as f:
+        yaml.dump(dict(new_args), f, default_flow_style=False)
 
 def check_yaml(main_args):
     sub_args = yaml.safe_load(open(main_args.yaml))
@@ -102,82 +108,97 @@ def main(args=None):
     sub_args = check_yaml(main_args)
 
     get_session()
-    trainset, valset, testset = load(main_args, sub_args)
-    
-    print('task :', main_args.task)
-    print('mode :', main_args.mode)
+    trainset, valset, testset = preprocessing.load(main_args, sub_args)
 
     print('TOTAL STEPS OF DATASET FOR TRAINING')
-    if args.task == 'Vessel' and args.patch is not None:
-        if args.patch == 'small1':
-            args.input_shape = (32, 32, 32, 1)
-            args.stride = [8, 8, 8]
-        elif args.patch == 'medium':
-            args.input_shape = (32, 64, 64, 1)
-            args.stride = [8, 16, 16]
-        elif args.patch == 'large':
-            args.input_shape = (32, 128, 128, 1)
-            args.stride = [8, 32, 32]
+    if sub_args['task']['subtask'] == 'Vessel' and sub_args['hyperparameter']['patch']:
+        if sub_args['hyperparameter']['patch'] == 'small':
+            sub_args['hyperparameter']['input_shape'] = (32, 32, 32, 1)
+            sub_args['hyperparameter']['stride'] = [8, 8, 8]
+        elif sub_args['hyperparameter']['patch'] == 'medium':
+            sub_args['hyperparameter']['input_shape'] = (32, 64, 64, 1)
+            sub_args['hyperparameter']['stride'] = [8, 16, 16]
+        elif sub_args['hyperparameter']['patch'] == 'large':
+            sub_args['hyperparameter']['input_shape'] = (32, 128, 128, 1)
+            sub_args['hyperparameter']['stride'] = [8, 32, 32]
         else:
             raise ValueError('If you choose \'Vessel task\', you must select a patch type.')
 
         print('========== trainset ==========')
-        steps_per_epoch = calc_vessel_dataset(trainset, args.task, args.input_shape, args.stride)
+        steps_per_epoch = sub_args['hyperparameter']['steps'] if sub_args['hyperparameter']['steps'] \
+                          else calc_vessel_dataset(trainset, 
+                                                   sub_args['task']['subtask'], 
+                                                   sub_args['etc']['data_root'],
+                                                   sub_args['etc']['result_root'],
+                                                   sub_args['hyperparameter']['input_shape'], 
+                                                   sub_args['hyperparameter']['stride'])
         print('    -->', steps_per_epoch)
         print('========== valset ==========')
-        validation_steps = calc_vessel_dataset(valset, args.task, args.input_shape, args.stride)
+        validation_steps = calc_vessel_dataset(valset, 
+                                               sub_args['task']['subtask'], 
+                                               sub_args['etc']['data_root'],
+                                               sub_args['etc']['result_root'],
+                                               sub_args['hyperparameter']['input_shape'], 
+                                               sub_args['hyperparameter']['stride'])
         print('    -->', validation_steps)
     
     else:
-        args.input_shape = (None, None, None, 1)
-        args.stride = 1
+        sub_args['hyperparameter']['input_shape'] = (None, None, None, 1)
+        sub_args['hyperparameter']['stride'] = 1
         print('========== trainset ==========')
-        steps_per_epoch = len(trainset)
+        steps_per_epoch = sub_args['hyperparameter']['steps'] if sub_args['hyperparameter']['steps'] else len(trainset)
         print('    -->', steps_per_epoch)
         print('========== valset ==========')
         validation_steps = len(valset)
         print('    -->', validation_steps)
 
-    for k, v in vars(args).items():
-        print('{} : {}'.format(k, v))
-
-    generator_dict = {'multi_organ': Generator_multiorgan,
-                      'Liver': Generator_Liver,
-                      'HCC1': Generator_HCC,
-                      'HCC2': Generator_HCC,
-                      'HCC3': Generator_HCC,
-                      'Vessel': Generator_Vessel}
-
     ##############################################
     # Set Model
     ##############################################
-    model = MyModel(args)
+    if main_args.mode == 'segmentation':
+        backbone = models.backbone(main_args.task, sub_args)
+        model = backbone.unet()
+    elif main_args.mode == 'classification':
+        pass
+    else:
+        raise ValueError()
 
-    if args.summary:
+    if sub_args['etc']['summary']:
         from keras.utils import plot_model
-        plot_model(model.mymodel, to_file='./model.png', show_shapes=True)
-        model.mymodel.summary()
+        plot_model(model, to_file=os.path.join(sub_args['etc']['result_root'], 'model.png'), show_shapes=True)
+        model.summary()
         return
 
-    if args.checkpoint:
-        model.mymodel.load_weights(args.checkpoint)
-        print("Load weights successfully at {}".format(args.checkpoint))
-        args.initial_epoch = int(args.checkpoint.split('/')[-1].split('_')[-2])
-        stamp = args.checkpoint.split('/')[5]
+    if sub_args['etc']['checkpoint']:
+        model.load_weights(sub_args['etc']['checkpoint'])
+        print("Load weights successfully at {}".format(sub_args['etc']['checkpoint']))
+        sub_args['hyperparameter']['initial_epoch'] = int(sub_args['etc']['checkpoint'].split('/')[-1].split('_')[-2])
+        sub_args['hyperparameter']['stamp'] = sub_args['etc']['checkpoint'].split('/')[5]
     else:
-        args.initial_epoch = 0
-        stamp = time.strftime("%c").replace(":", "_").replace(" ", "_")
+        sub_args['hyperparameter']['initial_epoch'] = 0
+        sub_args['hyperparameter']['stamp'] = time.strftime("%c").replace(":", "_").replace(" ", "_")
     
-    print("Initial epoch :", args.initial_epoch)
-    print("Stamp :", stamp)
+    print()
+    for k, v in sub_args.items():
+        if k in ['task', 'mode']:
+            print('{} :'.format(k), vars(main_args)[k])
+        else:
+            print(k)
 
-    model.compile(args.optimizer, args.lr)
+        for kk, vv in v.items():
+            print('    {} :'.format(kk), vv)
+        print()
+
+    optimizer, loss, metric = models.compile(sub_args)
+    model.compile(optimizer=optimizer, 
+                  loss=loss, 
+                  metric=metric)
 
     ##############################################
     # Set Callbacks
     ##############################################
-    if args.callback:
-        set_cbdir(args, stamp)
+    if sub_args['etc']['callback']:
+        set_cbdir(main_args, sub_args)
 
         cp = callback_checkpoint(filepath=os.path.join('/mnas/CDSS_Liver/{}/{}/{}/checkpoint'.format(args.mode, args.task, stamp), '{epoch:04d}_{val_dice:.4f}.h5'),
                                 monitor='val_dice',
@@ -219,7 +240,7 @@ def main(args=None):
         shuffle=False
     )
 
-    model.mymodel.fit_generator(generator=train_generator,
+    model.fit_generator(generator=train_generator,
                                 steps_per_epoch=steps_per_epoch//args.batch_size,
                                 verbose=1,
                                 epochs=args.epochs,
