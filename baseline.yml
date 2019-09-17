@@ -33,6 +33,9 @@ hyperparameter:
     wlevel: 100
     wwidth: 180
     resize: 1
+    lr_mode: constant
+    lr_value: 0.9
+    lr_duration: 1
 
 etc:
     summary: 0

@@ -7,7 +7,6 @@ import yaml
 import json
 import argparse
 import numpy as np
-from collections import OrderedDict
 
 import keras
 import warnings
@@ -22,38 +21,15 @@ if __name__ == "__main__" and __package__ is None:
     import src_sungchul_keras.bin  # noqa: F401
     __package__ = "src_sungchul_keras.bin"
 
-from . import get_session
+from . import get_session, set_cbdir
 from .. import models
 from .. import callbacks
 from .. import preprocessing
 
-def set_cbdir(main_args, sub_args):
-    if not os.path.isdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task)):
-        os.mkdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task))
 
-    if not os.path.isdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode)):
-        os.mkdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode))
-
-    if not os.path.isdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask'])):
-        os.mkdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask']))
-
-    if not os.path.isdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask'], sub_args['hyperparameter']['stamp'])):
-        os.mkdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask'], sub_args['hyperparameter']['stamp']))
-    
-    for i in ['checkpoint', 'history', 'logs']:
-        if not os.path.isdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask'], sub_args['hyperparameter']['stamp'], i)):
-            os.mkdir(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask'], sub_args['hyperparameter']['stamp'], i))
-    
-    new_args = OrderedDict()
-    new_args['task'] = {main_args.task: sub_args['task']}
-    new_args['mode'] = {main_args.mode: sub_args['mode']}
-    new_args['hyperparameter'] = sub_args['hyperparameter']
-    new_args['etc'] = sub_args['etc']
-    with open(os.path.join(sub_args['etc']['checkpoint_root'], main_args.task, main_args.mode, sub_args['task']['subtask'], sub_args['hyperparameter']['stamp'], 'model_desc.yml'), 'w') as f:
-        yaml.dump(dict(new_args), f, default_flow_style=False)
 
 def check_yaml(main_args):
-    sub_args = yaml.safe_load(open(main_args.yaml))
+    sub_args = yaml.load(open(main_args.yaml))
     sub_args['task'] = sub_args['task'][main_args.task]
     sub_args['mode'] = sub_args['mode'][main_args.mode]
     
@@ -199,23 +175,45 @@ def main(args=None):
     ##############################################
     if sub_args['etc']['callback']:
         set_cbdir(main_args, sub_args)
+        cp = callbacks.callback_checkpoint(filepath=os.path.join(sub_args['etc']['checkpoint_root'], 
+                                                                 main_args.task, main_args.mode, 
+                                                                 sub_args['task']['subtask'], 
+                                                                 sub_args['hyperparameter']['stamp'],
+                                                                 'checkpoint',
+                                                                 '{epoch:04d}_{val_dice:.4f}.h5' if main_args.mode == 'segmentation' \
+                                                                 else '{epoch:04d}_{val_loss:.4f}.h5'),
+                                           monitor='val_dice' if main_args.mode == 'segmentation' else 'val_loss',
+                                           verbose=1,
+                                           mode='max' if main_args.mode == 'segmentation' else 'min',
+                                           save_best_only=False,
+                                           save_weights_only=False)
 
-        cp = callback_checkpoint(filepath=os.path.join('/mnas/CDSS_Liver/{}/{}/{}/checkpoint'.format(args.mode, args.task, stamp), '{epoch:04d}_{val_dice:.4f}.h5'),
-                                monitor='val_dice',
-                                verbose=1,
-                                mode='max',
-                                save_best_only=True,
-                                save_weights_only=False)
+        el = callbacks.callback_epochlogger(filename=os.path.join(sub_args['etc']['checkpoint_root'], 
+                                                                  main_args.task, main_args.mode, 
+                                                                  sub_args['task']['subtask'], 
+                                                                  sub_args['hyperparameter']['stamp'],
+                                                                  'history', 'epoch.csv'),
+                                            separator=',', append=True)
 
-        el = callback_epochlogger(filename=os.path.join('/mnas/CDSS_Liver/{}/{}/{}/history'.format(args.mode, args.task, stamp), 'epoch.csv'),
-                                separator=',', append=True)
+        bl = callbacks.callback_batchlogger(filename=os.path.join(sub_args['etc']['checkpoint_root'], 
+                                                                  main_args.task, main_args.mode, 
+                                                                  sub_args['task']['subtask'], 
+                                                                  sub_args['hyperparameter']['stamp'],
+                                                                  'history', 'batch.csv'),
+                                            separator=',', append=True)
 
-        bl = callback_batchlogger(filename=os.path.join('/mnas/CDSS_Liver/{}/{}/{}/history'.format(args.mode, args.task, stamp), 'batch.csv'),
-                                separator=',', append=True)
-
-        tb = callback_tensorboard(log_dir=os.path.join('/mnas/CDSS_Liver/{}/{}/{}/logs'.format(args.mode, args.task, stamp)), batch_size=1)
+        tb = callbacks.callback_tensorboard(log_dir=os.path.join(sub_args['etc']['checkpoint_root'], 
+                                                                 main_args.task, main_args.mode, 
+                                                                 sub_args['task']['subtask'], 
+                                                                 sub_args['hyperparameter']['stamp'],
+                                                                 'logs'), 
+                                            batch_size=1)
         
-        ls = callback_learningrate(args.lr)
+        ls = callbacks.callback_learningrate(initlr=sub_args['hyperparameter']['lr'],
+                                             mode=sub_args['hyperparameter']['lr_mode'], 
+                                             value=sub_args['hyperparameter']['lr_value'], 
+                                             duration=sub_args['hyperparameter']['lr_duration'], 
+                                             total_epoch=sub_args['hyperparameter']['epochs'])
 
         callbacks = [cp, el, bl, tb, ls]
     
@@ -225,30 +223,34 @@ def main(args=None):
     ##############################################
     # Set Generator
     ##############################################
-    train_generator = generator_dict[args.task](
-        args=args,
-        datalist=trainset, 
-        mode='training',
-        rotation_range=[10., 10., 10.]
-    )
+    if main_args.task == 'CDSS_Liver':
+        generator_dict = {'multi_organ' : Generator_multiorgan,
+                          'Vessel'      : Generator_Vessel}
 
-    val_generator = generator_dict[args.task](
-        args=args,
-        datalist=valset,
-        mode='validation', 
-        rotation_range=[0., 0., 0.], 
-        shuffle=False
-    )
+        train_generator = generator_dict[sub_args['task']['subtask']](
+            sub_args=sub_args,
+            datalist=trainset, 
+            mode='training',
+            rotation_range=[10., 10., 10.]
+        )
+
+        val_generator = generator_dict[sub_args['task']['subtask']](
+            sub_args=sub_args,
+            datalist=valset,
+            mode='validation', 
+            rotation_range=[0., 0., 0.], 
+            shuffle=False
+        )
 
     model.fit_generator(generator=train_generator,
-                                steps_per_epoch=steps_per_epoch//args.batch_size,
-                                verbose=1,
-                                epochs=args.epochs,
-                                validation_data=val_generator,
-                                validation_steps=validation_steps//args.batch_size,
-                                callbacks=callbacks,
-                                shuffle=True,
-                                initial_epoch=args.initial_epoch)
+                        steps_per_epoch=steps_per_epoch//sub_args['hyperparameter']['batch_size'],
+                        verbose=1,
+                        epochs=sub_args['hyperparameter']['epochs'],
+                        validation_data=val_generator,
+                        validation_steps=validation_steps//sub_args['hyperparameter']['batch_size'],
+                        callbacks=callbacks,
+                        shuffle=True,
+                        initial_epoch=sub_args['hyperparameter']['initial_epoch'])
 
 
 if __name__ == "__main__":
