@@ -28,6 +28,7 @@ class ResNetBackbone(Backbone):
 
 
 def ResNet3D(task, sub_args, base_filter=32):
+    model_name = sub_args['mode']['bottom_up'] if main_args.mode == 'segmentation' else sub_args['mode']['model']
     img_input = Input(shape=sub_args['hyperparameter']['input_shape'])
 
     c1 = ZeroPadding3D(padding=(3, 3, 3))(img_input)

@@ -1,46 +1,65 @@
 task:
     BlackBlood:
     CDSS_Liver:
-        subtask: multi_organ
+        subtask: ascites
+        # artery / pre / portal / delay
         phase: artery
 
 mode:
     segmentation:
-        bottom_up: unet
+        bottom_up: unet 
         top_down: unet
         skip: unet
-        num_se: 0
-        norm: in
-        activation: relu
-        conv_loop: 2
         depth: 4
-        downsizing: pooling
-        divide: 1
-        last_relu: 0
 
     classification:
+        # vgg : vggA / vggB / vggC / vggD / vggE
+        model: vggA
 
 hyperparameter:
+    # pooling / conv
+    downsizing: pooling
+    divide: 1
+    last_relu: 0
+
+    # bn / in / gn
+    norm: in
+
+    # relu / leakyrelu    
+    activation: relu
     patch: 0
-    lossfn: dice
+
+    # segmentation : dice / crossentropy / focal / cedice / focaldice / celogdice / focallogdice
+    # classification : crossentropy / focal
+    lossfn: crossentropy
+
+    # adam / sgd
     optimizer: adam
     lr: 0.0001
     epochs: 100
     steps: 0
     batch_size: 1
     classes: 2
+
+    # minmax / norm / eachnorm
     standard: minmax
     wlevel: 100
     wwidth: 180
-    resize: 1
+    resize: 2
+
+    # constant / exponential / cosine
     lr_mode: constant
     lr_value: 0.9
     lr_duration: 1
 
+    # whole / local
+    voi_mode: whole
+    only_liver: 0
+
 etc:
     summary: 0
     checkpoint_root: /mnas
-    result_root: /repository/data/CDSS_Liver/src/segmentation
+    result_root: /repository/data/CDSS_Liver/src/classification
     data_root: /repository/data/CDSS_Liver/data
     checkpoint: 0
     callback: 1

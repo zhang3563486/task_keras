@@ -1,3 +1,5 @@
+import os
+import json
 import random
 import threading
 import numpy as np
@@ -34,19 +36,19 @@ def Generator_multiorgan(
     **kwargs):
 
     def _preprocessing(img, mask, prep):
-        img, mask = prep._array2img(img), prep._array2img(mask, ismask=True)
-        img, mask = prep._resize(img), prep._resize(mask, ismask=True)
+        img, mask = prep._array2img(img), prep._array2img(mask, is_mask=True)
+        img, mask = prep._resize(img), prep._resize(mask, is_mask=True)
 
-        if mode == 'training':
-            theta = [np.pi / 180 * np.random.uniform(-rr, rr) for rr in self.rotation_range]
-            img, mask = prep._rotation(img, theta), prep._rotation(mask, theta, ismask=True)
+        if mode == 'train':
+            theta = [np.pi / 180 * np.random.uniform(-rr, rr) for rr in rotation_range]
+            img, mask = prep._rotation(img, theta), prep._rotation(mask, theta, is_mask=True)
 
         img = prep._windowing(img)
         img = prep._standard(img)
         if sub_args['hyperparameter']['classes'] > 1:
             mask = prep._onehot(mask)
 
-        img, mask = prep._expand(img), prep._expand(mask, ismask=True)
+        img, mask = prep._expand(img), prep._expand(mask, is_mask=True)
 
         return img, mask
 
@@ -82,26 +84,26 @@ def Generator_Vessel(
     voi = json.loads(open(os.path.join(sub_args['etc']['result_root'], 'Vessel_voilist.json')).read())
 
     def _preprocessing(img, mask, prep, voirange):
-        img, mask = prep._array2img(img), prep._array2img(mask, ismask=True)
+        img, mask = prep._array2img(img), prep._array2img(mask, is_mask=True)
 
         if sub_args['hyperparameter']['classes'] == 1:
             mask[mask == 2.] = 0. # remove tumors
 
-        img, mask = prep._getvoi(img, voirange), prep._getvoi(mask, voirange, ismask=True)
+        img, mask = prep._getvoi(img, voirange), prep._getvoi(mask, voirange, is_mask=True)
 
-        if mode == 'training':
-            prob = np.random.random()
-            img, mask = prep._flip(img, prob), prep._flip(mask, prob, ismask=True)
+        if mode == 'train':
+            # prob = np.random.random()
+            # img, mask = prep._flip(img, prob), prep._flip(mask, prob, is_mask=True)
 
-            theta = [np.pi / 180 * np.random.uniform(-rr, rr) for rr in self.rotation_range]
-            img, mask = prep._rotation(img, theta), prep._rotation(mask, theta, ismask=True)
+            theta = [np.pi / 180 * np.random.uniform(-rr, rr) for rr in rotation_range]
+            img, mask = prep._rotation(img, theta), prep._rotation(mask, theta, is_mask=True)
 
         img = prep._windowing(img)
         img = prep._standard(img)
         if sub_args['hyperparameter']['classes'] > 1:
             mask = prep._onehot(mask)
 
-        img, mask = prep._expand(img), prep._expand(mask, ismask=True)
+        img, mask = prep._expand(img), prep._expand(mask, is_mask=True)
 
         return img, mask
 
@@ -109,7 +111,11 @@ def Generator_Vessel(
     prep = Prep_Segmentation(sub_args=sub_args,
                              rotation_range=rotation_range)
 
+    
+
     if sub_args['hyperparameter']['patch']:
+        batch_size = sub_args['hyperparameter']['batch_size'] if mode == 'train' else 1
+
         if isinstance(sub_args['hyperparameter']['stride'], int):
             sub_args['hyperparameter']['stride'] = [sub_args['hyperparameter']['stride'] for i in range(3)]
         
@@ -117,8 +123,8 @@ def Generator_Vessel(
             if sub_args['hyperparameter']['stride'][i] > sub_args['hyperparameter']['input_shape'][i]:
                 raise ValueError("You must set strides that are shorter than input shape.")
 
-        img_input = np.zeros((sub_args['hyperparameter']['batch_size'],)+sub_args['hyperparameter']['input_shape'])
-        mask_input = np.zeros((sub_args['hyperparameter']['batch_size'],)+sub_args['hyperparameter']['input_shape'][:3]+(sub_args['hyperparameter']['classes'],))
+        img_input = np.zeros((batch_size,)+sub_args['hyperparameter']['input_shape'])
+        mask_input = np.zeros((batch_size,)+sub_args['hyperparameter']['input_shape'][:3]+(sub_args['hyperparameter']['classes'],))
         batch = 0
         while True:
             if shuffle:
@@ -190,11 +196,11 @@ def Generator_Vessel(
                                                             xloc*args.stride[2]:xloc*args.stride[2]+args.input_shape[2]]
 
                         batch += 1
-                        if batch >= args.batch_size:
+                        if batch >= batch_size:
                             yield img_input, mask_input, data, patch_range, [zloc, yloc, xloc]
                             batch = 0
-                            img_input = np.zeros((args.batch_size,)+args.input_shape)
-                            mask_input = np.zeros((args.batch_size,)+args.input_shape[:3]+(args.classes,))
+                            img_input = np.zeros((batch_size,)+args.input_shape)
+                            mask_input = np.zeros((batch_size,)+args.input_shape[:3]+(args.classes,))
 
                     else:
                         # img_input[batch] = img[0,zloc*args.stride[0]:zloc*args.stride[0]+args.input_shape[0],
@@ -213,11 +219,11 @@ def Generator_Vessel(
                                                 xloc*args.stride[2]:xloc*args.stride[2]+args.input_shape[2]]
 
                         batch += 1
-                        if batch >= args.batch_size:
+                        if batch >= batch_size:
                             yield img_input, mask_input
                             batch = 0
-                            img_input = np.zeros((args.batch_size,)+args.input_shape)
-                            mask_input = np.zeros((args.batch_size,)+args.input_shape[:3]+(args.classes,))
+                            img_input = np.zeros((batch_size,)+args.input_shape)
+                            mask_input = np.zeros((batch_size,)+args.input_shape[:3]+(args.classes,))
     
     else:
         while True:
@@ -247,22 +253,22 @@ class Prep_Segmentation(Preprocessing):
                     #    'Vessel': [150., 300.]}
                        'Vessel': [50., 300.]}
 
-    def _array2img(self, x, ismask=False):
-        if ismask and isinstance(x, list):
+    def _array2img(self, x, is_mask=False):
+        if is_mask and isinstance(x, list):
             return [sitk.GetArrayFromImage(m).astype('float32') for m in x]
         else:
             return sitk.GetArrayFromImage(x).astype('float32')
 
-    def _resize(self, x, ismask=False):
-        if ismask and isinstance(x, list):
-            return [ndimage.zoom(m, [1., 1./self.sub_args['hyperparameter']['resize_rate'], 1./self.sub_args['hyperparameter']['resize_rate']], 
+    def _resize(self, x, is_mask=False):
+        if is_mask and isinstance(x, list):
+            return [ndimage.zoom(m, [1., 1./self.sub_args['hyperparameter']['resize'], 1./self.sub_args['hyperparameter']['resize']], 
                                  order=0, mode='constant', cval=0.) for m in x]
         else:
-            return ndimage.zoom(x, [1., 1./self.sub_args['hyperparameter']['resize_rate'], 1./self.sub_args['hyperparameter']['resize_rate']], 
+            return ndimage.zoom(x, [1., 1./self.sub_args['hyperparameter']['resize'], 1./self.sub_args['hyperparameter']['resize']], 
                                 order=0, mode='constant', cval=0.)
 
-    def _getvoi(self, x, voi, ismask=False):
-        if ismask and isinstance(x, list):
+    def _getvoi(self, x, voi, is_mask=False):
+        if is_mask and isinstance(x, list):
             return [m[voi[0]:voi[1],voi[2]:voi[3],voi[4]:voi[5]] for m in x]
         else:
             return x[voi[0]:voi[1],voi[2]:voi[3],voi[4]:voi[5]]
@@ -271,17 +277,17 @@ class Prep_Segmentation(Preprocessing):
         return np.clip(x, self.windowing_min, self.windowing_max)
 
     def _standard(self, x):
-        if self.standard == 'minmax':
+        if self.sub_args['hyperparameter']['standard'] == 'minmax':
             return (x - self.windowing_min) / (self.windowing_max - self.windowing_min)
-        elif self.standard == 'norm':
+        elif self.sub_args['hyperparameter']['standard'] == 'norm':
             return (x - self.mean_std[self.sub_args['task']['subtask']][0]) / self.mean_std[self.sub_args['task']['subtask']][1]
-        elif self.standard == 'eachnorm':
+        elif self.sub_args['hyperparameter']['standard'] == 'eachnorm':
             return (x - x.mean()) / x.std()
         else:
             return x
 
-    def _expand(self, x, ismask=False):
-        if ismask:
+    def _expand(self, x, is_mask=False):
+        if is_mask:
             if isinstance(x, list):
                 bg = np.ones_like(x[0])
                 for i in range(len(x)):
@@ -289,7 +295,7 @@ class Prep_Segmentation(Preprocessing):
                 bg = np.clip(bg, 0., 1.)
                 return np.concatenate([bg[np.newaxis,...,np.newaxis]]+[m[np.newaxis,...,np.newaxis] for m in x], axis=-1)
             else:
-                return x[np.newaxis,...] if sub_args['hyperparameter']['classes'] > 1 else x[np.newaxis,...,np.newaxis]
+                return x[np.newaxis,...] if self.sub_args['hyperparameter']['classes'] > 1 else x[np.newaxis,...,np.newaxis]
         else:
             return x[np.newaxis,...,np.newaxis]
     
@@ -299,22 +305,19 @@ class Prep_Segmentation(Preprocessing):
             result[...,i][np.where(x == i)] = 1.
         return result
 
-    def _flip(self, x, prob, ismask=False):
+    def _flip(self, x, prob, is_mask=False):
         if prob < 0.25:
-            return [m[:,::-1,::-1] for m in x] if ismask and isinstance(x, list) else x[:,::-1,::-1]
+            return [m[:,::-1,::-1] for m in x] if is_mask and isinstance(x, list) else x[:,::-1,::-1]
         elif 0.25 <= prob < 0.5:
-            return [m[:,:,::-1] for m in x] if ismask and isinstance(x, list) else x[:,:,::-1]
+            return [m[:,:,::-1] for m in x] if is_mask and isinstance(x, list) else x[:,:,::-1]
         elif 0.5 <= prob < 0.75:
-            return [m[:,::-1,:] for m in x] if ismask and isinstance(x, list) else x[:,::-1,:]
+            return [m[:,::-1,:] for m in x] if is_mask and isinstance(x, list) else x[:,::-1,:]
         else:
             return x
 
-    def _rotation(self, x, theta, dep_index=0, row_index=1, col_index=2, ismask=False):
+    def _rotation(self, x, theta, dep_index=0, row_index=1, col_index=2, is_mask=False):
         theta1, theta2, theta3 = theta
         
-        # theta1 = np.pi / 180 * np.random.uniform(-self.rotation_range[0], self.rotation_range[0])
-        # theta2 = np.pi / 180 * np.random.uniform(-self.rotation_range[1], self.rotation_range[1])
-        # theta3 = np.pi / 180 * np.random.uniform(-self.rotation_range[2], self.rotation_range[2])
         rotation_matrix_z = np.array([[np.cos(theta1), -np.sin(theta1), 0, 0],
                                       [np.sin(theta1), np.cos(theta1), 0, 0],
                                       [0, 0, 1, 0],
@@ -331,8 +334,8 @@ class Prep_Segmentation(Preprocessing):
         rotation_matrix = np.dot(np.dot(rotation_matrix_y, rotation_matrix_z), rotation_matrix_x)
 
         d, h, w = x.shape[dep_index], x.shape[row_index], x.shape[col_index]
-        transform_matrix = self.__transform_matrix_offset_center(rotation_matrix, d, w, h)
-        if ismask and isinstance(mask, list):
-            return [self.__apply_transform(m, transform_matrix, fill_mode, cval) for m in x]
+        transform_matrix = self._transform_matrix_offset_center(rotation_matrix, d, w, h)
+        if is_mask and isinstance(x, list):
+            return [self._apply_transform(m, transform_matrix, 'nearest', 0.) for m in x]
         else:
-            return self.__apply_transform(x, transform_matrix, fill_mode, cval)
+            return self._apply_transform(x, transform_matrix, 'nearest', 0.)

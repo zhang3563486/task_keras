@@ -4,6 +4,7 @@ import csv
 import six
 from collections import OrderedDict
 from collections import Iterable
+from sklearn.metrics import roc_curve, auc
 
 from keras.callbacks import Callback
 from keras.callbacks import ModelCheckpoint
@@ -16,88 +17,35 @@ class Evaluate(Callback):
         self,
         generator,
         eval_steps,
-        is_patch,
         verbose=1):
 
         super(Evaluate, self).__init__()
         self.generator = generator
         self.eval_steps = eval_steps
-        self.is_patch = is_patch
         self.verbose = verbose
 
-        self.tot_dice = 0.
-        self.pneu_dice = 0.
-
     def on_epoch_end(self, epoch, logs=None):
-        if epoch % 5 == 0:
+        if epoch == 0 or (epoch+1) % 5 == 0:
             logs = logs or {}
-            self.tot_dice, self.pneu_dice = self.evaluate()
+            self.auc_score = self.evaluate()
 
             if self.verbose == 1:
-                print('Epoch {:4d} - Dice score : {:.4f} | Pneu score : {:.4f}'.format(epoch+1, self.tot_dice, self.pneu_dice))
+                print('Epoch {:4d} - AUC : {:.4f}'.format(epoch+1, self.auc_score))
             
-        logs['eval_dice'] = self.tot_dice
-        logs['eval_dice_pneu'] = self.pneu_dice
+        logs['eval_auc'] = self.auc_score
 
-    def dice(self, y_true, y_pred, classes, smooth=1.):
-        loss = 0.   
-        y_pred = np.clip(y_pred, 1e-7, 1-1e-7)
-        if classes > 1:
-            for num_label in range(classes):
-                y_true_f = y_true[...,num_label].flatten()
-                y_pred_f = y_pred[...,num_label].flatten()
-                intersection = np.sum(y_true_f * y_pred_f)
-                loss += (2. * intersection + smooth) / (np.sum(y_true_f) + np.sum(y_pred_f) + smooth)
-
-        else:
-            y_true_f = y_true.flatten()
-            y_pred_f = y_pred.flatten()
-            intersection = np.sum(y_true_f * y_pred_f)
-            loss += (2. * intersection + smooth) / (np.sum(y_true_f) + np.sum(y_pred_f) + smooth)
-
-        return loss / classes
-
-    def onehot(self, x, classes):
-        result = np.zeros(x.shape+(classes,))
-        for i in range(classes):
-            result[...,i][np.where(x == i)] = 1.
-        return result
-
-    def evaluate(self, classes=2):
-        tot_dice = []
-        pneu_dice = []
+    def evaluate(self):
+        label = []
+        pred = []
         for i in tqdm.trange(self.eval_steps):
-            y_true = np.zeros((1024, 1024, 2))
-            y_pred = np.zeros((1024, 1024, 2))
-            loc_cnt = np.zeros((1024, 1024, 2))
-
             g = next(self.generator)
             result = self.model.predict_on_batch(g[0])
-
-            if self.is_patch:
-                ratio = 1024//result.shape[1]
-                for l in range(result.shape[0]):
-                    # result = model.predict_on_batch(g[0][l][np.newaxis,...])
-                    y_true[(l//(2*ratio-1))*1024//(ratio*2):(l//(2*ratio-1)+2)*1024//(ratio*2), 
-                           (l%(2*ratio-1))*1024//(ratio*2):(l%(2*ratio-1)+2)*1024//(ratio*2)] += g[1][l]
-
-                    y_pred[(l//(2*ratio-1))*1024//(ratio*2):(l//(2*ratio-1)+2)*1024//(ratio*2), 
-                           (l%(2*ratio-1))*1024//(ratio*2):(l%(2*ratio-1)+2)*1024//(ratio*2)] += result[l]
-
-                    loc_cnt[(l//(2*ratio-1))*1024//(ratio*2):(l//(2*ratio-1)+2)*1024//(ratio*2), 
-                            (l%(2*ratio-1))*1024//(ratio*2):(l%(2*ratio-1)+2)*1024//(ratio*2)] += 1
-                
-                y_true /= loc_cnt
-                y_pred /= loc_cnt
-
-            else:
-                y_pred = result
-
-            y_pred = self.onehot(np.argmax(y_pred, axis=-1), classes)                
-            tot_dice.append(self.dice(y_true, y_pred, classes))
-            pneu_dice.append(self.dice(y_true[...,1], y_pred[...,1], 1))
+            label.append(g[1][0,1])
+            pred.append(result[0,1])
         
-        return sum(tot_dice)/eval_steps, sum(pneu_dice)/eval_steps
+        fpr, tpr, thresholds = roc_curve(label, pred, pos_label=1)
+        auc_score = auc(fpr, tpr)
+        return auc_score
 
 
 class CustomBatchLogger(CSVLogger):
@@ -200,5 +148,5 @@ def callback_learningrate(initlr, mode, value, duration, total_epoch):
                                                         duration=duration, 
                                                         total_epoch=total_epoch), verbose=1)
 
-def callback_evaluate(generator, eval_steps, is_patch):
-    return Evaluate(generator=generator, eval_steps=eval_steps, is_patch=is_patch, verbose=1)
+def callback_evaluate(generator, eval_steps):
+    return Evaluate(generator=generator, eval_steps=eval_steps, verbose=1)

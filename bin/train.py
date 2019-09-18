@@ -3,9 +3,6 @@
 import os
 import sys
 import time
-import yaml
-import json
-import argparse
 import numpy as np
 
 import keras
@@ -21,60 +18,10 @@ if __name__ == "__main__" and __package__ is None:
     import src_sungchul_keras.bin  # noqa: F401
     __package__ = "src_sungchul_keras.bin"
 
-from . import get_session, set_cbdir
+from . import get_session, get_arguments, check_yaml, set_cbdir, create_generator, create_callbacks
 from .. import models
 from .. import callbacks
 from .. import preprocessing
-
-
-
-def check_yaml(main_args):
-    sub_args = yaml.load(open(main_args.yaml))
-    sub_args['task'] = sub_args['task'][main_args.task]
-    sub_args['mode'] = sub_args['mode'][main_args.mode]
-    
-    # Sanity check for task
-    if main_args.task == 'CDSS_Liver':
-        assert sub_args['task']['subtask'], 'Subtask of maintask must be selected.'
-        assert sub_args['task']['phase'], 'Phase of maintask must be selected.'
-    
-    # Sanity check for mode
-    # Must set # of SE-block
-    if 'se' in sub_args['mode']['bottom_up'] or 'se' in sub_args['mode']['top_down']:
-        assert sub_args['mode']['num_se'] > 0, 'If selecting SE-block, choose # of SE-block over 0.'
-        assert sub_args['mode']['conv_loop'] >= sub_args['mode']['num_se'], '# of SE-block cannot be more than conv loop.'
-
-    # Cannot select unet and attention in skip connection
-    if 'unet' in sub_args['mode']['skip'] and 'attention' in sub_args['mode']['skip']:
-        raise ValueError('You must choose ONLY one skip connection.')
-
-    # Sanity check for etc
-    assert sub_args['etc']['checkpoint_root'], 'Root path of checkpoint must be selected.'
-    assert sub_args['etc']['result_root'], 'Root path of result must be selected.'
-    assert sub_args['etc']['data_root'], 'Root path of data must be selected.'
-
-    return sub_args
-
-def check_args(parsed_args):
-    if not parsed_args.yaml:
-        raise ValueError('You must enter the yaml file.')
-
-    if not parsed_args.task:
-        raise ValueError('You must enter the task to do')
-
-    if not parsed_args.mode:
-        raise ValueError('You must enter the mode.')
-
-    return parsed_args
-    
-
-def get_arguments(args):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--yaml", type=str, default=None)
-    parser.add_argument("--task", type=str, default=None)
-    parser.add_argument("--mode", type=str, default=None)
-
-    return check_args(parser.parse_args(args))
 
 
 def main(args=None):
@@ -102,20 +49,20 @@ def main(args=None):
 
         print('========== trainset ==========')
         steps_per_epoch = sub_args['hyperparameter']['steps'] if sub_args['hyperparameter']['steps'] \
-                          else calc_vessel_dataset(trainset, 
-                                                   sub_args['task']['subtask'], 
-                                                   sub_args['etc']['data_root'],
-                                                   sub_args['etc']['result_root'],
-                                                   sub_args['hyperparameter']['input_shape'], 
-                                                   sub_args['hyperparameter']['stride'])
+                          else preprocessing.calc_vessel_dataset(trainset, 
+                                                                 sub_args['task']['subtask'], 
+                                                                 sub_args['etc']['data_root'],
+                                                                 sub_args['etc']['result_root'],
+                                                                 sub_args['hyperparameter']['input_shape'], 
+                                                                 sub_args['hyperparameter']['stride'])
         print('    -->', steps_per_epoch)
         print('========== valset ==========')
-        validation_steps = calc_vessel_dataset(valset, 
-                                               sub_args['task']['subtask'], 
-                                               sub_args['etc']['data_root'],
-                                               sub_args['etc']['result_root'],
-                                               sub_args['hyperparameter']['input_shape'], 
-                                               sub_args['hyperparameter']['stride'])
+        validation_steps = preprocessing.calc_vessel_dataset(valset, 
+                                                             sub_args['task']['subtask'], 
+                                                             sub_args['etc']['data_root'],
+                                                             sub_args['etc']['result_root'],
+                                                             sub_args['hyperparameter']['input_shape'], 
+                                                             sub_args['hyperparameter']['stride'])
         print('    -->', validation_steps)
     
     else:
@@ -128,14 +75,17 @@ def main(args=None):
         validation_steps = len(valset)
         print('    -->', validation_steps)
 
+
     ##############################################
     # Set Model
     ##############################################
     if main_args.mode == 'segmentation':
-        backbone = models.backbone(main_args.task, sub_args)
+        backbone = models.backbone(main_args, sub_args)
         model = backbone.unet()
     elif main_args.mode == 'classification':
-        pass
+        model = models.classification.set_model(main_args=main_args,
+                                                sub_args=sub_args, 
+                                                base_filter=int(32//sub_args['hyperparameter']['divide']))
     else:
         raise ValueError()
 
@@ -165,89 +115,42 @@ def main(args=None):
             print('    {} :'.format(kk), vv)
         print()
 
-    optimizer, loss, metric = models.compile(sub_args)
+    optimizer, loss, metric = models.compile(main_args, sub_args)
     model.compile(optimizer=optimizer, 
                   loss=loss, 
-                  metric=metric)
+                  metrics=metric)
 
-    ##############################################
-    # Set Callbacks
-    ##############################################
-    if sub_args['etc']['callback']:
-        set_cbdir(main_args, sub_args)
-        cp = callbacks.callback_checkpoint(filepath=os.path.join(sub_args['etc']['checkpoint_root'], 
-                                                                 main_args.task, main_args.mode, 
-                                                                 sub_args['task']['subtask'], 
-                                                                 sub_args['hyperparameter']['stamp'],
-                                                                 'checkpoint',
-                                                                 '{epoch:04d}_{val_dice:.4f}.h5' if main_args.mode == 'segmentation' \
-                                                                 else '{epoch:04d}_{val_loss:.4f}.h5'),
-                                           monitor='val_dice' if main_args.mode == 'segmentation' else 'val_loss',
-                                           verbose=1,
-                                           mode='max' if main_args.mode == 'segmentation' else 'min',
-                                           save_best_only=False,
-                                           save_weights_only=False)
-
-        el = callbacks.callback_epochlogger(filename=os.path.join(sub_args['etc']['checkpoint_root'], 
-                                                                  main_args.task, main_args.mode, 
-                                                                  sub_args['task']['subtask'], 
-                                                                  sub_args['hyperparameter']['stamp'],
-                                                                  'history', 'epoch.csv'),
-                                            separator=',', append=True)
-
-        bl = callbacks.callback_batchlogger(filename=os.path.join(sub_args['etc']['checkpoint_root'], 
-                                                                  main_args.task, main_args.mode, 
-                                                                  sub_args['task']['subtask'], 
-                                                                  sub_args['hyperparameter']['stamp'],
-                                                                  'history', 'batch.csv'),
-                                            separator=',', append=True)
-
-        tb = callbacks.callback_tensorboard(log_dir=os.path.join(sub_args['etc']['checkpoint_root'], 
-                                                                 main_args.task, main_args.mode, 
-                                                                 sub_args['task']['subtask'], 
-                                                                 sub_args['hyperparameter']['stamp'],
-                                                                 'logs'), 
-                                            batch_size=1)
-        
-        ls = callbacks.callback_learningrate(initlr=sub_args['hyperparameter']['lr'],
-                                             mode=sub_args['hyperparameter']['lr_mode'], 
-                                             value=sub_args['hyperparameter']['lr_value'], 
-                                             duration=sub_args['hyperparameter']['lr_duration'], 
-                                             total_epoch=sub_args['hyperparameter']['epochs'])
-
-        callbacks = [cp, el, bl, tb, ls]
-    
-    else:
-        callbacks = []
 
     ##############################################
     # Set Generator
     ##############################################
-    if main_args.task == 'CDSS_Liver':
-        generator_dict = {'multi_organ' : Generator_multiorgan,
-                          'Vessel'      : Generator_Vessel}
+    train_generator = create_generator(main_args=main_args, 
+                                       sub_args=sub_args, 
+                                       datalist=trainset, 
+                                       mode='train', 
+                                       rotation_range=[5., 5., 5.])
 
-        train_generator = generator_dict[sub_args['task']['subtask']](
-            sub_args=sub_args,
-            datalist=trainset, 
-            mode='training',
-            rotation_range=[10., 10., 10.]
-        )
+    val_generator = create_generator(main_args=main_args, 
+                                     sub_args=sub_args, 
+                                     datalist=valset, 
+                                     mode='validation', 
+                                     rotation_range=[0., 0., 0.])
 
-        val_generator = generator_dict[sub_args['task']['subtask']](
-            sub_args=sub_args,
-            datalist=valset,
-            mode='validation', 
-            rotation_range=[0., 0., 0.], 
-            shuffle=False
-        )
+    ##############################################
+    # Set Callbacks
+    ##############################################
+    callbacks = create_callbacks(main_args, sub_args, val_generator, validation_steps) if sub_args['etc']['callback'] else []
 
+
+    ##############################################
+    # Train
+    ##############################################
     model.fit_generator(generator=train_generator,
                         steps_per_epoch=steps_per_epoch//sub_args['hyperparameter']['batch_size'],
                         verbose=1,
                         epochs=sub_args['hyperparameter']['epochs'],
                         validation_data=val_generator,
-                        validation_steps=validation_steps//sub_args['hyperparameter']['batch_size'],
+                        validation_steps=validation_steps,
                         callbacks=callbacks,
                         shuffle=True,
                         initial_epoch=sub_args['hyperparameter']['initial_epoch'])

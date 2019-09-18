@@ -17,7 +17,7 @@ from keras.layers import BatchNormalization
 from keras_contrib.layers import InstanceNormalization
 from keras_contrib.layers import GroupNormalization
 
-__all__ = ['_basic_block', '_unet_upconv_block']
+__all__ = ['_basic_block', '_unet_upconv_block', '_downsizing']
 
 def _normalization(inputs, norm='bn'):
     if norm == 'bn':
@@ -33,9 +33,9 @@ def _activation(inputs, activation='relu'):
     elif activation == 'leakyrelu':
         return LeakyReLU(alpha=.3)(inputs)
 
-def _downsizing(inputs, filters, downsizing='pooling', norm='bn', activation='relu'):
+def _downsizing(inputs, pool_size, filters, downsizing='pooling', norm='bn', activation='relu'):
     if downsizing == 'pooling':
-        return MaxPooling3D((3, 3, 3), strides=(2, 2, 2), padding='same')(inputs)
+        return MaxPooling3D(pool_size=pool_size)(inputs)
     elif downsizing == 'conv':
         x = Conv3D(filters, (3, 3, 3), strides=(2, 2, 2), padding='same')(inputs)
         x = _activation(x, activation=activation)
@@ -51,8 +51,11 @@ def _se_block(inputs, filters, se_ratio=16):
     return x
 
 
-def _basic_block(inputs, filters, norm='bn', activation='relu', is_seblock=False):
-    x = Conv3D(filters, (3, 3, 3), strides=(1, 1, 1), use_bias=False, padding='same')(inputs)
+def _basic_block(inputs, filters, kernels, strides=(1, 1, 1), pool_size=(2, 2, 2), downsizing='pooling', 
+                 norm='bn', activation='relu', is_seblock=False, is_downsizing=False):
+    if is_downsizing:
+        inputs = _downsizing(inputs, pool_size, filters, downsizing=downsizing, norm=norm, activation=activation)
+    x = Conv3D(filters, kernels, strides=strides, use_bias=False, padding='same')(inputs)
     x = _normalization(x, norm=norm)
     x = _activation(x, activation=activation)
     if is_seblock:
@@ -60,14 +63,8 @@ def _basic_block(inputs, filters, norm='bn', activation='relu', is_seblock=False
     return x
 
 def _resnet_conv_block(inputs, filters, strides=(2, 2, 2), norm='bn', activation='relu'):
-    x = Conv3D(filters[0], (1, 1, 1), strides=strides)(inputs)
-    x = _normalization(x, norm=norm)
-    x = _activation(x, activation=activation)
-
-    x = Conv3D(filters[1], (3, 3, 3), padding='same')(x)
-    x = _normalization(x, norm=norm)
-    x = _activation(x, activation=activation)
-
+    x = _basic_block(inputs, filters[0], (1, 1, 1), strides=strides, norm=norm, activation=activation)
+    x = _basic_block(x, filters[1], (3, 3, 3), norm=norm, activation=activation)
     x = Conv3D(filters[2], (1, 1, 1))(x)
     x = _normalization(x, norm=norm)
 
@@ -80,16 +77,11 @@ def _resnet_conv_block(inputs, filters, strides=(2, 2, 2), norm='bn', activation
     return x
 
 def _resnet_identity_block(inputs, filters, is_seblock=False):
-    x = Conv3D(filters[0], (1, 1, 1))(inputs)
-    x = _normalization(x, norm=norm)
-    x = _activation(x, activation=activation)
-
-    x = Conv3D(filters[1], (3, 3, 3), padding='same')(x)
-    x = _normalization(x, norm=norm)
-    x = _activation(x, activation=activation)
-
+    x = _basic_block(inputs, filters[0], (1, 1, 1), strides=strides, norm=norm, activation=activation)
+    x = _basic_block(x, filters[1], (3, 3, 3), norm=norm, activation=activation)
     x = Conv3D(filters[2], (1, 1, 1))(x)
     x = _normalization(x, norm=norm)
+
     if is_seblock:
         x = _se_block(x, filters[2])
 
@@ -161,7 +153,7 @@ def _unet_upconv_block(inputs, skip_input, filters, skip='unet', top_down='unet'
     x = _crop_concat()([x]+skip_input)
 
     if 'unet' in top_down:
-        x = _basic_block(x, filters, norm=norm, activation=activation, is_seblock=True if 'se' in top_down else False)
-        x = _basic_block(x, filters, norm=norm, activation=activation, is_seblock=True if 'se' in top_down else False)
+        x = _basic_block(x, filters, (3, 3, 3), norm=norm, activation=activation, is_seblock=True if 'se' in top_down else False)
+        x = _basic_block(x, filters, (3, 3, 3), norm=norm, activation=activation, is_seblock=True if 'se' in top_down else False)
 
     return x
