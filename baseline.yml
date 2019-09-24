@@ -1,7 +1,7 @@
 task:
     BlackBlood:
     CDSS_Liver:
-        subtask: ascites
+        subtask: multi_organ
         # artery / pre / portal / delay
         phase: artery
 
@@ -62,4 +62,4 @@ etc:
     result_root: /repository/data/CDSS_Liver/src/classification
     data_root: /repository/data/CDSS_Liver/data
     checkpoint: 0
-    callback: 1
+    callback: 0

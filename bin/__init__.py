@@ -25,6 +25,12 @@ def check_yaml(main_args):
     if main_args.task == 'CDSS_Liver':
         assert sub_args['task']['subtask'], 'Subtask of maintask must be selected.'
         assert sub_args['task']['phase'], 'Phase of maintask must be selected.'
+
+        if main_args.mode == 'segmentation':
+            assert sub_args['task']['subtask'] in ['multi_organ', 'Vessel', 'HCC', 'Liver']
+        elif main_args.mode == 'classification':
+            assert sub_args['task']['subtask'] in ['ascites', 'varix', 'distritubion', 'RFA_feasiblity', 'Pvi_loca']
+            assert sub_args['task']['phase'] in ['artery', 'pre', 'portal', 'delay']
     
     # Sanity check for mode
     # Must set # of SE-block

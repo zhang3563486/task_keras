@@ -15,8 +15,8 @@ np.random.seed(SEED)
 # Allow relative imports when being executed as script.
 if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-    import src_sungchul_keras.bin  # noqa: F401
-    __package__ = "src_sungchul_keras.bin"
+    import task_keras.bin  # noqa: F401
+    __package__ = "task_keras.bin"
 
 from . import get_session, get_arguments, check_yaml, set_cbdir, create_generator, create_callbacks
 from .. import models
