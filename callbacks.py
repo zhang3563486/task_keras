@@ -98,6 +98,29 @@ class CustomBatchLogger(CSVLogger):
         super().on_train_end(logs)
 
 
+class LearningRateBatchScheduler(LearningRateScheduler):
+    def __init__(self, schedule):
+        super(LearningRateBatchScheduler, self).__init__()
+        self.schedule = schedule
+        
+    def on_batch_begin(self, batch, logs=None):
+        if not hasattr(self.model.optimizer, 'lr'):
+            raise ValueError('Optimizer must have a "lr" attribute.')
+        lr = float(K.get_value(self.model.optimizer.lr))
+        try:  # new API
+            lr = self.schedule(epoch, lr)
+        except TypeError:  # old API for backward compatibility
+            lr = self.schedule(epoch)
+        if not isinstance(lr, (float, np.float32, np.float64)):
+            raise ValueError('The output of the "schedule" function '
+                             'should be float.')
+        K.set_value(self.model.optimizer.lr, lr)
+
+    def on_batch_end(self, batch, logs=None):
+        logs = logs or {}
+        logs['lr'] = K.get_value(self.model.optimizer.lr)
+
+
 def callback_checkpoint(filepath, monitor, verbose, mode, save_best_only, save_weights_only):
     return ModelCheckpoint(filepath=filepath,
                            monitor=monitor,
@@ -119,30 +142,31 @@ def callback_batchlogger(filename, separator, append):
 def callback_tensorboard(log_dir, batch_size):
     return TensorBoard(log_dir=log_dir, batch_size=batch_size)
 
-def main_schedule(initlr, mode, value, duration, total_epoch):
+def main_schedule(initlr, warmup, mode, value, duration, total_epoch):
     def _cosine_anneal_schedule(epoch, total_epoch):
-        total_epoch = np.maximum(total_epoch, 50)
-        cos_inner = np.pi * (epoch % total_epoch)
-        cos_inner /= total_epoch
-        cos_out = np.cos(cos_inner) + 1
-        return float(initlr / 2 * cos_out)
+        return float((1 + ((np.pi * (epoch % total_epoch)) / total_epoch)) * initlr / 2)
 
     def _exponential(epoch, value, duration):
         update = epoch // duration
         return initlr * (value ** update)
 
     def _schedule(epoch, lr):
+        if warmup and epoch < warmup:
+            print('warmup!')
+            return initlr*(epoch+1)/warmup
+
         if mode == 'constant':
             return lr
         elif mode == 'exponential':
-            return _exponential(epoch, value, duration)
+            return _exponential(epoch-warmup, value, duration)
         elif mode == 'cosine':
-            return _cosine_anneal_schedule(epoch, total_epoch)
+            return _cosine_anneal_schedule(epoch-warmup, total_epoch-warmup)
 
     return _schedule
 
-def callback_learningrate(initlr, mode, value, duration, total_epoch):
+def callback_learningrate(initlr, warmup, mode, value, duration, total_epoch):
     return LearningRateScheduler(schedule=main_schedule(initlr=initlr, 
+                                                        warmup=warmup,
                                                         mode=mode, 
                                                         value=value, 
                                                         duration=duration, 

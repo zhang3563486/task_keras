@@ -13,11 +13,13 @@ from keras.layers import Lambda
 from keras.layers import Dense
 from keras.layers import Reshape
 from keras.layers import Multiply
+from keras.layers import Add
 from keras.layers import BatchNormalization
 from keras_contrib.layers import InstanceNormalization
 from keras_contrib.layers import GroupNormalization
 
-__all__ = ['_basic_block', '_unet_upconv_block', '_downsizing']
+__all__ = ['_basic_block', '_unet_upconv_block', '_downsizing', '_normalization', '_activation',
+           '_resnet_conv_block', '_resnet_bottleneck_block']
 
 def _normalization(inputs, norm='bn'):
     if norm == 'bn':
@@ -51,41 +53,79 @@ def _se_block(inputs, filters, se_ratio=16):
     return x
 
 
-def _basic_block(inputs, filters, kernels, strides=(1, 1, 1), pool_size=(2, 2, 2), downsizing='pooling', 
-                 norm='bn', activation='relu', is_seblock=False, is_downsizing=False):
+def _basic_block(inputs, 
+                 filters, 
+                 kernels, 
+                 strides=(1, 1, 1), 
+                 pool_size=(2, 2, 2), 
+                 downsizing='pooling', 
+                 norm='bn', 
+                 activation='relu', 
+                 is_seblock=False, 
+                 is_downsizing=False):
+
     if is_downsizing:
         inputs = _downsizing(inputs, pool_size, filters, downsizing=downsizing, norm=norm, activation=activation)
+
     x = Conv3D(filters, kernels, strides=strides, use_bias=False, padding='same')(inputs)
-    x = _normalization(x, norm=norm)
-    x = _activation(x, activation=activation)
+    if norm:
+        x = _normalization(x, norm=norm)
+    
     if is_seblock:
         x = _se_block(x, filters)
+
+    if activation:
+        x = _activation(x, activation=activation)
+    
     return x
 
-def _resnet_conv_block(inputs, filters, strides=(2, 2, 2), norm='bn', activation='relu'):
-    x = _basic_block(inputs, filters[0], (1, 1, 1), strides=strides, norm=norm, activation=activation)
-    x = _basic_block(x, filters[1], (3, 3, 3), norm=norm, activation=activation)
-    x = Conv3D(filters[2], (1, 1, 1))(x)
-    x = _normalization(x, norm=norm)
+def _resnet_conv_block(inputs, 
+                       filters, 
+                       strides=(2, 2, 2), 
+                       norm='bn', 
+                       activation='relu', 
+                       is_identity=False, 
+                       is_seblock=False):
 
-    shortcut = Conv3D(filters[2], (1, 1, 1), strides=strides)(inputs)
-    shortcut = _normalization(x, norm=norm)
+    x = _basic_block(inputs, filters[0], (3, 3, 3), norm=norm, activation=activation)
+    x = _basic_block(x, filters[1], (3, 3, 3), norm=norm, activation=None)
+
+    if is_seblock:
+        x = _se_block(x, filters[1])
+
+    if is_identity:
+        shortcut = inputs
+    else:
+        shortcut = Conv3D(filters[1], (1, 1, 1), strides=strides)(inputs)
+        shortcut = _normalization(x, norm=norm)
 
     x = Add()([x, shortcut])
     x = _activation(x, activation=activation)
     
     return x
 
-def _resnet_identity_block(inputs, filters, is_seblock=False):
+def _resnet_bottleneck_block(inputs, 
+                             filters, 
+                             strides=(1, 1, 1), 
+                             norm='bn', 
+                             activation='relu', 
+                             is_identity=False, 
+                             is_seblock=False):
+
     x = _basic_block(inputs, filters[0], (1, 1, 1), strides=strides, norm=norm, activation=activation)
     x = _basic_block(x, filters[1], (3, 3, 3), norm=norm, activation=activation)
-    x = Conv3D(filters[2], (1, 1, 1))(x)
-    x = _normalization(x, norm=norm)
+    x = _basic_block(x, filters[2], (1, 1, 1), norm=norm, activation=None)
 
     if is_seblock:
         x = _se_block(x, filters[2])
 
-    x = Add()([x, inputs])
+    if is_identity:
+        shortcut = inputs
+    else:
+        shortcut = Conv3D(filters[2], (1, 1, 1), strides=strides)(inputs)
+        shortcut = _normalization(x, norm=norm)
+
+    x = Add()([x, shortcut])
     x = _activation(x, activation=activation)
     
     return x

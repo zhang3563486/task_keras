@@ -95,7 +95,12 @@ def set_cbdir(main_args, sub_args):
 
 
 def create_callbacks(main_args, sub_args, generator, eval_steps):
-    # set_cbdir(main_args, sub_args)
+    callback_list = []
+    if main_args.mode == 'classification':
+        ev = callbacks.callback_evaluate(generator=generator, eval_steps=eval_steps)
+        callback_list.append(ev)
+        
+    set_cbdir(main_args, sub_args)
     # cp = callbacks.callback_checkpoint(filepath=os.path.join(sub_args['etc']['checkpoint_root'], 
     #                                                          main_args.task, main_args.mode, 
     #                                                          sub_args['task']['subtask'], 
@@ -109,12 +114,12 @@ def create_callbacks(main_args, sub_args, generator, eval_steps):
     #                                    save_best_only=False,
     #                                    save_weights_only=False)
 
-    # el = callbacks.callback_epochlogger(filename=os.path.join(sub_args['etc']['checkpoint_root'], 
-    #                                                           main_args.task, main_args.mode, 
-    #                                                           sub_args['task']['subtask'], 
-    #                                                           sub_args['hyperparameter']['stamp'],
-    #                                                           'history', 'epoch.csv'),
-    #                                     separator=',', append=True)
+    el = callbacks.callback_epochlogger(filename=os.path.join(sub_args['etc']['checkpoint_root'], 
+                                                              main_args.task, main_args.mode, 
+                                                              sub_args['task']['subtask'], 
+                                                              sub_args['hyperparameter']['stamp'],
+                                                              'history', 'epoch.csv'),
+                                        separator=',', append=True)
 
     # bl = callbacks.callback_batchlogger(filename=os.path.join(sub_args['etc']['checkpoint_root'], 
     #                                                           main_args.task, main_args.mode, 
@@ -130,17 +135,15 @@ def create_callbacks(main_args, sub_args, generator, eval_steps):
     #                                                          'logs'), 
     #                                     batch_size=1)
     
-    # ls = callbacks.callback_learningrate(initlr=sub_args['hyperparameter']['lr'],
-    #                                      mode=sub_args['hyperparameter']['lr_mode'], 
-    #                                      value=sub_args['hyperparameter']['lr_value'], 
-    #                                      duration=sub_args['hyperparameter']['lr_duration'], 
-    #                                      total_epoch=sub_args['hyperparameter']['epochs'])
+    ls = callbacks.callback_learningrate(initlr=sub_args['hyperparameter']['lr'],
+                                         warmup=sub_args['hyperparameter']['lr_warmup'],
+                                         mode=sub_args['hyperparameter']['lr_mode'], 
+                                         value=sub_args['hyperparameter']['lr_value'], 
+                                         duration=sub_args['hyperparameter']['lr_duration'], 
+                                         total_epoch=sub_args['hyperparameter']['epochs'])
 
     # callback_list = [cp, el, bl, tb, ls]
-    callback_list = []
-    if main_args.mode == 'classification':
-        ev = callbacks.callback_evaluate(generator=generator, eval_steps=eval_steps)
-        callback_list.append(ev)
+    callback_list = [el, ls]
     
     return callback_list
 

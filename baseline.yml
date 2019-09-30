@@ -1,7 +1,10 @@
 task:
     BlackBlood:
     CDSS_Liver:
-        subtask: multi_organ
+        # segmentation : multi_organ / Vessel / HCC / Liver
+        # classification : ascites / varix / distritubion / RFA_feasiblity / Pvi_loca
+        subtask: ascites
+
         # artery / pre / portal / delay
         phase: artery
 
@@ -13,8 +16,9 @@ mode:
         depth: 4
 
     classification:
-        # vgg : vggA / vggB / vggC / vggD / vggE
-        model: vggA
+        # vgg : vggA / vggB / vggC / vggD / vggE + se
+        # resnet : res18 / res34 / res50 / res101 / res152 + se
+        model: res18se
 
 hyperparameter:
     # pooling / conv
@@ -49,6 +53,7 @@ hyperparameter:
 
     # constant / exponential / cosine
     lr_mode: constant
+    lr_warmup: 5
     lr_value: 0.9
     lr_duration: 1
 
@@ -57,7 +62,7 @@ hyperparameter:
     only_liver: 0
 
 etc:
-    summary: 0
+    summary: 1
     checkpoint_root: /mnas
     result_root: /repository/data/CDSS_Liver/src/classification
     data_root: /repository/data/CDSS_Liver/data
